@@ -11,6 +11,30 @@ let profileForm, userProfileBtn, userOrdersBtn, logoutBtn;
 // Cart state
 let cart = JSON.parse(localStorage.getItem('cart')) || [];
 
+// Update the cart icon count based on localStorage state
+function updateCartCount() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('cart')) || [];
+        const count = saved.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        const badge = document.getElementById('cart-count');
+        if (badge) badge.textContent = count;
+    } catch (e) {
+        console.warn('Failed to update cart count', e);
+    }
+}
+
+// Update cart UI and count together
+function updateCart() {
+    // Ensure latest data and refresh UI pieces
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
+    updateCartCount();
+    // If cart modal is open, render immediately
+    const openModal = document.querySelector('.modal.show');
+    if (openModal && openModal.id === 'cartModal') {
+        renderCart();
+    }
+}
+
 // Expanded categories data
 const categories = [
     { id: 1, name: 'Breakfast', image: 'https://picsum.photos/500/300?random=101', description: 'Start your day right' },
@@ -432,7 +456,6 @@ function generateStars(rating) {
     return stars;
 }
 
-// Render menu items
 function renderMenuItems(items = menuItems) {
     const menuContainer = document.getElementById('menu-items');
     
@@ -465,7 +488,7 @@ function renderMenuItems(items = menuItems) {
                     </div>
                     <div class="d-flex justify-content-between align-items-center">
                         <span class="h5 mb-0 text-primary">$${item.price.toFixed(2)}</span>
-                        <button class="btn btn-primary" onclick="addToCart(${item.id})">
+                        <button class="btn btn-primary add-to-cart" data-item-id="${item.id}">
                             <i class="fas fa-plus"></i> Add to Cart
                         </button>
                     </div>
@@ -473,224 +496,86 @@ function renderMenuItems(items = menuItems) {
             </div>
         </div>
     `).join('');
-}
 
-// Generate star rating HTML
-function generateStarRating(rating) {
-    const fullStars = Math.floor(rating);
-    const hasHalfStar = rating % 1 !== 0;
-    let starsHtml = '';
-    
-    for (let i = 0; i < fullStars; i++) {
-        starsHtml += '<i class="fas fa-star text-warning"></i>';
-    }
-    
-    if (hasHalfStar) {
-        starsHtml += '<i class="fas fa-star-half-alt text-warning"></i>';
-    }
-    
-    const emptyStars = 5 - Math.ceil(rating);
-    for (let i = 0; i < emptyStars; i++) {
-        starsHtml += '<i class="far fa-star text-warning"></i>';
-    }
-    
-    return starsHtml;
-}
-
-// Initialize filters
-function initializeFilters() {
-    const categoryFilter = document.getElementById('category-filter');
-    const filterTags = document.getElementById('filter-tags');
-    
-    // Populate category filter
-    categories.forEach(category => {
-        const option = document.createElement('option');
-        option.value = category.id;
-        option.textContent = category.name;
-        categoryFilter.appendChild(option);
-    });
-    
-    // Generate filter tags from all menu items
-    const allTags = [...new Set(menuItems.flatMap(item => item.tags))];
-    allTags.forEach(tag => {
-        const tagElement = document.createElement('button');
-        tagElement.className = 'btn btn-outline-secondary btn-sm filter-tag';
-        tagElement.setAttribute('data-tag', tag);
-        tagElement.innerHTML = `${tag} <i class="fas fa-times ms-1" style="display: none;"></i>`;
-        filterTags.appendChild(tagElement);
+    // Fallback: bind direct listeners to add-to-cart buttons
+    menuContainer.querySelectorAll('.add-to-cart').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            const id = parseInt(btn.getAttribute('data-item-id'));
+            if (!Number.isNaN(id)) addToCart(id);
+        });
     });
 }
 
-// Set up search and filter functionality
-function setupSearchAndFilters() {
-    const searchInput = document.getElementById('search-input');
-    const categoryFilter = document.getElementById('category-filter');
-    const priceFilter = document.getElementById('price-filter');
-    const sortFilter = document.getElementById('sort-filter');
+// Add item to cart
+function addToCart(itemId) {
+    console.log('addToCart called with itemId:', itemId);
     
-    // Search input
-    searchInput.addEventListener('input', (e) => {
-        currentFilters.search = e.target.value.toLowerCase();
-        applyFilters();
-    });
+    // Always load fresh cart from localStorage
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
+    console.log('Current cart before adding:', cart);
     
-    // Category filter
-    categoryFilter.addEventListener('change', (e) => {
-        currentFilters.category = e.target.value;
-        applyFilters();
-    });
+    const existingItem = cart.find(item => item.id === itemId);
     
-    // Price filter
-    priceFilter.addEventListener('change', (e) => {
-        currentFilters.priceRange = e.target.value;
-        applyFilters();
-    });
-    
-    // Sort filter
-    sortFilter.addEventListener('change', (e) => {
-        currentFilters.sort = e.target.value;
-        applyFilters();
-    });
-    
-    // Tag filters
-    document.addEventListener('click', (e) => {
-        if (e.target.classList.contains('filter-tag') || e.target.parentElement.classList.contains('filter-tag')) {
-            const tagButton = e.target.classList.contains('filter-tag') ? e.target : e.target.parentElement;
-            const tag = tagButton.getAttribute('data-tag');
-            
-            if (currentFilters.tags.includes(tag)) {
-                // Remove tag
-                currentFilters.tags = currentFilters.tags.filter(t => t !== tag);
-                tagButton.classList.remove('active');
-                tagButton.querySelector('.fa-times').style.display = 'none';
-            } else {
-                // Add tag
-                currentFilters.tags.push(tag);
-                tagButton.classList.add('active');
-                tagButton.querySelector('.fa-times').style.display = 'inline';
-            }
-            
-            applyFilters();
-        }
-    });
-}
-
-// Filter categories based on search term
-function filterCategories(searchTerm) {
-    if (!searchTerm) {
-        renderCategories(); // Show all categories
-        return;
-    }
-
-    const filteredCategories = categories.filter(category =>
-        category.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        category.description.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
-    renderFilteredCategories(filteredCategories);
-}
-
-// Render filtered categories
-function renderFilteredCategories(filteredCategories) {
-    const container = document.getElementById('categories-container');
-
-    if (!container) {
-        console.error('Categories container not found');
-        return;
-    }
-
-    container.innerHTML = '';
-
-    if (filteredCategories.length === 0) {
-        container.innerHTML = `
-            <div class="col-12 text-center py-4">
-                <i class="fas fa-search fa-3x text-muted mb-3"></i>
-                <h5 class="text-muted">No matching categories found</h5>
-                <p class="text-muted">Try a different search term</p>
-            </div>
-        `;
-        return;
-    }
-
-    filteredCategories.forEach(category => {
-        const categoryElement = document.createElement('div');
-        categoryElement.className = 'col-md-4 mb-4';
-        categoryElement.innerHTML = `
-            <div class="card h-100 category-card">
-                <img src="${category.image}" class="card-img-top" alt="${category.name}" 
-                     style="height: 200px; object-fit: cover;" 
-                     onerror="handleImageError(this)">
-                <div class="card-body d-flex flex-column">
-                    <h5 class="card-title">${category.name}</h5>
-                    <p class="card-text text-muted flex-grow-1">${category.description}</p>
-                    <button class="btn btn-sm btn-outline-warning view-category" data-category-id="${category.id}">
-                        <i class="fas fa-eye me-1"></i>View Items
-                    </button>
-                </div>
-            </div>
-        `;
-        container.appendChild(categoryElement);
-    });
-
-    console.log('Filtered categories rendered:', filteredCategories.length);
-}
-
-// Apply filters to menu items
-function applyFilters() {
-    let filteredItems = [...menuItems];
-
-    // Also filter categories when searching
-    if (currentFilters.search) {
-        filterCategories(currentFilters.search);
+    if (existingItem) {
+        existingItem.quantity += 1;
+        console.log('Increased quantity for existing item:', existingItem);
     } else {
-        renderCategories(); // Show all categories when no search
-    }
-
-    // Search filter for menu items
-    if (currentFilters.search) {
-        const searchTerm = currentFilters.search.toLowerCase();
-        filteredItems = filteredItems.filter(item =>
-            item.name.toLowerCase().includes(searchTerm) ||
-            item.description.toLowerCase().includes(searchTerm) ||
-            item.tags.some(tag => tag.toLowerCase().includes(searchTerm))
-        );
-    }
-
-    // Category filter
-    if (currentFilters.category) {
-        filteredItems = filteredItems.filter(item => item.categoryId == currentFilters.category);
-    }
-
-    // Price range filter
-    if (currentFilters.priceRange) {
-        const [min, max] = currentFilters.priceRange.split('-').map(Number);
-        if (max) {
-            filteredItems = filteredItems.filter(item => item.price >= min && item.price <= max);
-        } else {
-            filteredItems = filteredItems.filter(item => item.price >= min);
+        const menuItem = menuItems.find(item => item.id === itemId);
+        console.log('Menu item found:', menuItem);
+        if (menuItem) {
+            cart.push({
+                id: menuItem.id,
+                name: menuItem.name,
+                price: menuItem.price,
+                image: menuItem.image,
+                quantity: 1
+            });
+            console.log('Added new item to cart');
         }
     }
-
-    // Tag filter
-    if (currentFilters.tags.length > 0) {
-        filteredItems = filteredItems.filter(item =>
-            currentFilters.tags.some(tag => item.tags.includes(tag))
-        );
-    }
-
-    // Sort
-    if (currentFilters.sort === 'price-low') {
-        filteredItems.sort((a, b) => a.price - b.price);
-    } else if (currentFilters.sort === 'price-high') {
-        filteredItems.sort((a, b) => b.price - a.price);
-    } else if (currentFilters.sort === 'rating') {
-        filteredItems.sort((a, b) => b.rating - a.rating);
-    } else {
-        filteredItems.sort((a, b) => a.name.localeCompare(b.name));
-    }
-
-    renderMenuItems(filteredItems);
+    
+    console.log('Cart after adding:', cart);
+    
+    // Save immediately to localStorage
+    localStorage.setItem('cart', JSON.stringify(cart));
+    console.log('Cart saved to localStorage:', localStorage.getItem('cart'));
+    
+    updateCartCount();
+    // Refresh cart UI immediately so opening the modal shows updated items
+    renderCart();
+    showToast('Item added to cart!', 'success');
 }
+
+// Remove an item from the cart
+function removeFromCart(itemId) {
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
+    cart = cart.filter(item => item.id !== itemId);
+    localStorage.setItem('cart', JSON.stringify(cart));
+    updateCart();
+    showToast('Item removed from cart', 'info');
+}
+
+// Update quantity for an item in the cart
+function updateQuantity(itemId, newQuantity) {
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
+    const item = cart.find(i => i.id === itemId);
+    if (!item) return;
+    const qty = Math.max(1, Number.isNaN(newQuantity) ? item.quantity : newQuantity);
+    item.quantity = qty;
+    localStorage.setItem('cart', JSON.stringify(cart));
+    updateCart();
+}
+
+// Fallback for broken images
+function handleImageError(img) {
+    if (!img) return;
+    img.onerror = null;
+    img.src = 'https://via.placeholder.com/400x300?text=Image+Unavailable';
+}
+
+ 
 
 // Set up event listeners
 function setupEventListeners() {
@@ -819,48 +704,63 @@ function setupEventListeners() {
             showToast('Showing all menu items', 'info');
         }
         
-        // Add to cart
-        if (e.target.classList.contains('add-to-cart')) {
-            const itemId = parseInt(e.target.getAttribute('data-item-id'));
-            addToCart(itemId);
+        // Add to cart (support clicks on nested icons)
+        const addBtn = e.target.closest('.add-to-cart');
+        if (addBtn) {
+            const itemId = parseInt(addBtn.getAttribute('data-item-id'));
+            if (!Number.isNaN(itemId)) addToCart(itemId);
         }
-        
+
         // Remove from cart
-        if (e.target.classList.contains('remove-from-cart')) {
-            const itemId = parseInt(e.target.getAttribute('data-item-id'));
-            removeFromCart(itemId);
+        const removeBtn = e.target.closest('.remove-from-cart');
+        if (removeBtn) {
+            const itemId = parseInt(removeBtn.getAttribute('data-item-id'));
+            if (!Number.isNaN(itemId)) removeFromCart(itemId);
         }
-        
-        // Update quantity
-        if (e.target.classList.contains('update-quantity')) {
-            const itemId = parseInt(e.target.getAttribute('data-item-id'));
-            const newQuantity = parseInt(e.target.value);
-            updateQuantity(itemId, newQuantity);
-        }
-        
+
         // Increment quantity
-        if (e.target.classList.contains('increment')) {
-            const input = e.target.parentElement.querySelector('.quantity-input');
+        const incBtn = e.target.closest('.increment');
+        if (incBtn) {
+            const input = incBtn.parentElement.querySelector('.quantity-input');
             input.value = parseInt(input.value) + 1;
-            const itemId = parseInt(e.target.getAttribute('data-item-id'));
+            const itemId = parseInt(incBtn.getAttribute('data-item-id'));
             updateQuantity(itemId, parseInt(input.value));
         }
-        
+
         // Decrement quantity
-        if (e.target.classList.contains('decrement')) {
-            const input = e.target.parentElement.querySelector('.quantity-input');
+        const decBtn = e.target.closest('.decrement');
+        if (decBtn) {
+            const input = decBtn.parentElement.querySelector('.quantity-input');
             if (parseInt(input.value) > 1) {
                 input.value = parseInt(input.value) - 1;
-                const itemId = parseInt(e.target.getAttribute('data-item-id'));
+                const itemId = parseInt(decBtn.getAttribute('data-item-id'));
                 updateQuantity(itemId, parseInt(input.value));
             }
         }
     });
     
-    // Show cart modal
-    const cartBtn = document.querySelector('[data-bs-target="#cartModal"]');
-    if (cartBtn) {
-        cartBtn.addEventListener('click', renderCart);
+    // Show cart modal - render cart when modal is shown
+    const cartModalElement = document.getElementById('cartModal');
+    if (cartModalElement) {
+        console.log('Setting up cart modal event listeners');
+        cartModalElement.addEventListener('show.bs.modal', function() {
+            console.log('Cart modal show.bs.modal event fired');
+            renderCart();
+        });
+        cartModalElement.addEventListener('shown.bs.modal', function() {
+            console.log('Cart modal shown.bs.modal event fired');
+            renderCart();
+        });
+    }
+    
+    // Also add listener to cart button as backup
+    const cartButton = document.querySelector('[data-bs-target="#cartModal"]');
+    if (cartButton) {
+        console.log('Setting up cart button click listener');
+        cartButton.addEventListener('click', function() {
+            console.log('Cart button clicked');
+            setTimeout(renderCart, 100); // Small delay to ensure modal is ready
+        });
     }
     
     // Checkout button
@@ -887,316 +787,20 @@ function setupEventListeners() {
         orderHistoryBtn.addEventListener('click', showOrderHistory);
     }
 }
-
-// User state
-let currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
-
-// Handle login
-function handleLogin(e) {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const password = document.getElementById('login-password').value;
+ 
+ function renderCart() {
+     // Reload cart from localStorage to ensure we have the latest data
+    cart = JSON.parse(localStorage.getItem('cart')) || [];
     
-    // In a real app, this would authenticate with Firebase
-    // For demo purposes, we'll simulate login
-    const user = {
-        id: Date.now(),
-        email: email,
-        name: email.split('@')[0],
-        phone: '',
-        address: '',
-        preferences: [],
-        orders: []
-    };
+    console.log('renderCart called, cart contents:', cart);
+    console.log('cart length:', cart.length);
+    console.log('cart is array:', Array.isArray(cart));
     
-    currentUser = user;
-    localStorage.setItem('currentUser', JSON.stringify(user));
-    
-    updateUserInterface();
-    showToast('Login successful!', 'success');
-    loginModal.hide();
-    loginForm.reset();
-}
-
-// Handle registration
-function handleRegister(e) {
-    e.preventDefault();
-    const name = document.getElementById('register-name').value;
-    const email = document.getElementById('register-email').value;
-    const password = document.getElementById('register-password').value;
-    const confirmPassword = document.getElementById('register-confirm-password').value;
-    
-    if (password !== confirmPassword) {
-        showToast('Passwords do not match!', 'danger');
-        return;
-    }
-    
-    // In a real app, this would create a new user in Firebase
-    const user = {
-        id: Date.now(),
-        email: email,
-        name: name,
-        phone: '',
-        address: '',
-        preferences: [],
-        orders: []
-    };
-    
-    currentUser = user;
-    localStorage.setItem('currentUser', JSON.stringify(user));
-    
-    updateUserInterface();
-    showToast('Registration successful!', 'success');
-    registerModal.hide();
-    registerForm.reset();
-}
-
-// Update user interface based on login state
-function updateUserInterface() {
-    const loginBtn = document.getElementById('login-btn');
-    const userMenu = document.getElementById('user-menu');
-    const userName = document.getElementById('user-name');
-    
-    if (currentUser) {
-        loginBtn.style.display = 'none';
-        userMenu.style.display = 'block';
-        userName.textContent = currentUser.name;
-        loadUserProfile();
-    } else {
-        loginBtn.style.display = 'block';
-        userMenu.style.display = 'none';
-    }
-}
-
-// Handle logout
-function handleLogout() {
-    currentUser = null;
-    localStorage.removeItem('currentUser');
-    updateUserInterface();
-    showToast('Logged out successfully!', 'info');
-}
-
-// Load user profile data
-function loadUserProfile() {
-    if (!currentUser) return;
-    
-    document.getElementById('profile-name').value = currentUser.name || '';
-    document.getElementById('profile-email').value = currentUser.email || '';
-    document.getElementById('profile-phone').value = currentUser.phone || '';
-    document.getElementById('profile-address').value = currentUser.address || '';
-    
-    // Load preferences
-    const preferences = currentUser.preferences || [];
-    document.getElementById('pref-vegetarian').checked = preferences.includes('vegetarian');
-    document.getElementById('pref-vegan').checked = preferences.includes('vegan');
-    document.getElementById('pref-glutenfree').checked = preferences.includes('glutenfree');
-    document.getElementById('pref-spicy').checked = preferences.includes('spicy');
-    document.getElementById('pref-healthy').checked = preferences.includes('healthy');
-    document.getElementById('pref-seafood').checked = preferences.includes('seafood');
-}
-
-// Handle profile update
-function handleProfileUpdate(e) {
-    e.preventDefault();
-    
-    if (!currentUser) return;
-    
-    // Update user data
-    currentUser.name = document.getElementById('profile-name').value;
-    currentUser.email = document.getElementById('profile-email').value;
-    currentUser.phone = document.getElementById('profile-phone').value;
-    currentUser.address = document.getElementById('profile-address').value;
-    
-    // Update preferences
-    const preferences = [];
-    if (document.getElementById('pref-vegetarian').checked) preferences.push('vegetarian');
-    if (document.getElementById('pref-vegan').checked) preferences.push('vegan');
-    if (document.getElementById('pref-glutenfree').checked) preferences.push('glutenfree');
-    if (document.getElementById('pref-spicy').checked) preferences.push('spicy');
-    if (document.getElementById('pref-healthy').checked) preferences.push('healthy');
-    if (document.getElementById('pref-seafood').checked) preferences.push('seafood');
-    
-    currentUser.preferences = preferences;
-    
-    // Save to localStorage
-    localStorage.setItem('currentUser', JSON.stringify(currentUser));
-    
-    // Update UI
-    document.getElementById('user-name').textContent = currentUser.name;
-    
-    showToast('Profile updated successfully!', 'success');
-    document.getElementById('profileModal').querySelector('.btn-close').click();
-}
-
-// Show order history
-function showOrderHistory() {
-    const orderHistoryModal = new bootstrap.Modal(document.getElementById('orderHistoryModal'));
-    const orderHistoryContent = document.getElementById('order-history-content');
-    
-    if (!currentUser || !currentUser.orders || currentUser.orders.length === 0) {
-        orderHistoryContent.innerHTML = `
-            <div class="text-center py-5">
-                <i class="fas fa-receipt fa-3x mb-3 text-muted"></i>
-                <p class="text-muted">No orders found</p>
-            </div>
-        `;
-    } else {
-        let ordersHtml = '';
-        currentUser.orders.forEach(order => {
-            ordersHtml += `
-                <div class="card mb-3">
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h6 class="card-title mb-0">Order #${order.id}</h6>
-                            <span class="badge bg-success">${order.status}</span>
-                        </div>
-                        <p class="text-muted mb-2">${new Date(order.date).toLocaleDateString()}</p>
-                        <p class="mb-2"><strong>Total: $${order.total.toFixed(2)}</strong></p>
-                        <div class="order-items">
-                            ${order.items.map(item => `
-                                <small class="d-block">${item.quantity}x ${item.name}</small>
-                            `).join('')}
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        orderHistoryContent.innerHTML = ordersHtml;
-    }
-    
-    orderHistoryModal.show();
-}
-
-// Handle contact form submission
-function handleContact(e) {
-    e.preventDefault();
-    const name = document.getElementById('name').value;
-    const email = document.getElementById('email').value;
-    const message = document.getElementById('message').value;
-    
-    // In a real app, this would send the message to a server
-    // For demo purposes, we'll just show a success message
-    showToast('Thank you for your message! We will get back to you soon.', 'success');
-    contactForm.reset();
-}
-
-// Add item to cart
-function addToCart(itemId) {
-    const existingItem = cart.find(item => item.id === itemId);
-    
-    if (existingItem) {
-        existingItem.quantity += 1;
-    } else {
-        const menuItem = menuItems.find(item => item.id === itemId);
-        if (menuItem) {
-            cart.push({
-                id: menuItem.id,
-                name: menuItem.name,
-                price: menuItem.price,
-                image: menuItem.image,
-                quantity: 1
-            });
-        }
-    }
-    
-    updateCart();
-    showToast('Item added to cart!', 'success');
-}
-
-// Remove item from cart
-function removeFromCart(itemId) {
-    cart = cart.filter(item => item.id !== itemId);
-    updateCart();
-    showToast('Item removed from cart!', 'danger');
-}
-
-// Update item quantity in cart
-function updateQuantity(itemId, quantity) {
-    const cartItem = cart.find(item => item.id === itemId);
-    if (cartItem) {
-        if (quantity < 1) {
-            removeFromCart(itemId);
-        } else {
-            cartItem.quantity = quantity;
-            updateCart();
-        }
-    }
-}
-
-// Update cart in local storage and UI
-function updateCart() {
-    localStorage.setItem('cart', JSON.stringify(cart));
-    updateCartCount();
-    
-    // If cart modal is open, update it
-    if (document.querySelector('.modal.show') && document.querySelector('.modal.show').id === 'cartModal') {
-        renderCart();
-    }
-}
-
-// Image error handling
-function handleImageError(img) {
-    img.src = 'https://via.placeholder.com/400x300/f8f9fa/6c757d?text=Food+Image';
-    img.onerror = null; // Prevent infinite loop
-}
-
-// Update cart count in navbar
-function updateCartCount() {
-    const cartCount = document.getElementById('cart-count');
-    if (cartCount) {
-        const totalItems = cart.reduce((total, item) => total + item.quantity, 0);
-        cartCount.textContent = totalItems;
-    }
-}
-
-// Render menu items
-function renderMenuItems(items = menuItems) {
-    const menuContainer = document.getElementById('menu-items');
-    
-    if (items.length === 0) {
-        menuContainer.innerHTML = `
-            <div class="col-12 text-center py-5">
-                <i class="fas fa-search fa-3x text-muted mb-3"></i>
-                <h4 class="text-muted">No items found</h4>
-                <p class="text-muted">Try adjusting your search or filters</p>
-            </div>
-        `;
-        return;
-    }
-    
-    menuContainer.innerHTML = items.map(item => `
-        <div class="col-lg-4 col-md-6 mb-4">
-            <div class="card menu-item h-100">
-                <img src="${item.image}" class="card-img-top" alt="${item.name}" 
-                     style="height: 200px; object-fit: cover;" 
-                     onerror="handleImageError(this)">
-                <div class="card-body d-flex flex-column">
-                    <h5 class="card-title">${item.name}</h5>
-                    <p class="card-text flex-grow-1">${item.description}</p>
-                    <div class="mb-2">
-                        ${generateStars(item.rating)}
-                        <span class="text-muted ms-2">(${item.rating})</span>
-                    </div>
-                    <div class="mb-2">
-                        ${item.tags.map(tag => `<span class="badge bg-secondary me-1">${tag}</span>`).join('')}
-                    </div>
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="h5 mb-0 text-primary">$${item.price.toFixed(2)}</span>
-                        <button class="btn btn-primary" onclick="addToCart(${item.id})">
-                            <i class="fas fa-plus"></i> Add to Cart
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `).join('');
-}
-
-// Render cart items
-function renderCart() {
-
     const cartItems = document.getElementById('cart-items');
     const cartTotal = document.getElementById('cart-total');
+    
+    console.log('cartItems element:', cartItems);
+    console.log('cartTotal element:', cartTotal);
     
     if (cart.length === 0) {
         cartItems.innerHTML = `
@@ -1239,6 +843,35 @@ function renderCart() {
     });
     
     cartItems.innerHTML = itemsHtml;
+    
+    // Attach robust listeners for quantity and remove actions inside the modal
+    cartItems.querySelectorAll('.increment').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = parseInt(btn.getAttribute('data-item-id'));
+            const input = btn.parentElement.querySelector('.quantity-input');
+            const next = parseInt(input.value) + 1;
+            input.value = next;
+            updateQuantity(id, next);
+        });
+    });
+    cartItems.querySelectorAll('.decrement').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const id = parseInt(btn.getAttribute('data-item-id'));
+            const input = btn.parentElement.querySelector('.quantity-input');
+            const next = Math.max(1, parseInt(input.value) - 1);
+            input.value = next;
+            updateQuantity(id, next);
+        });
+    });
+    cartItems.querySelectorAll('.remove-from-cart').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const id = parseInt(btn.getAttribute('data-item-id'));
+            removeFromCart(id);
+        });
+    });
+
     cartTotal.textContent = `$${total.toFixed(2)}`;
 }
 
